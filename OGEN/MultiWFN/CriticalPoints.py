@@ -151,3 +151,33 @@ def generate_xyz(
         ))
     xyz.append('')
     return '\n'.join(xyz)
+
+def save_cps(
+    cps: Tuple[List[CritPoints], List[np.ndarray]],
+    filename: str
+):
+    lines = []
+    for i, coord in enumerate(cps[1]):
+        lines.append('%2d % 20.8e % 20.8e % 20.8e\n' % (
+            cps[0][i].value,
+            coord[0],
+            coord[1],
+            coord[2]
+        ))
+    with open(filename, 'w+') as f:
+        f.writelines(lines)
+
+def read_cps(
+    filename: str
+) -> Tuple[List[CritPoints], List[np.ndarray]]:
+    cps = ([], [])
+    with open(filename, 'r') as f:
+        for line in f:
+            values = line.split()
+            cps[0].append(int(values[0]))
+            cps[1].append(np.array([
+                float(values[1]),
+                float(values[2]),
+                float(values[3])
+            ]))
+    return cps

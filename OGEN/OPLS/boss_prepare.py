@@ -3,7 +3,7 @@ import numpy as np
 from .linear_algebra import dist, angle, tors, find_suitable
 from ..Topology.topology import get_connected_indices
 from ..fchk_parser import Elements
-from ...ProcPDB import Molecule
+from ...FilesProcessing import Molecule
 
 HEADER = 'BOSS Z-matrix by OGEN'
 GEOM_VAR = '                    Geometry Variations follow    (2I4,F12.6)'
