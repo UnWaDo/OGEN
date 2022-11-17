@@ -1,42 +1,36 @@
 import argparse
+import math
 import os
-from typing import List, Tuple
+import subprocess
+
+import numpy as np
+from OGEN.ForceField import (AtomType, FFAtom, FFBond, ForceField,
+                             HarmonicAngle, HarmonicBond, NonbondedAtom,
+                             Residue)
+from OGEN.ForceField.VSites import AverageTwo, LocalCoords
+from OGEN.MultiWFN import SpaceFunctions, calculate_rsf_at_points
+from OGEN.OPLS import create_cmd, create_params, create_zmat, get_bonded, get_dispersion
+from OGEN.Points.la_selectors import are_colinear
+from OGEN.Points.selectors import gen_oscs
+from OGEN.RESP import fit_charges, gen_points
 from openbabel import pybel
 from rdkit import Chem
-from rdkit.Chem.rdchem import Mol as RDMol
-import numpy as np
-
-from OGEN.Points.selectors import select_atomic_points, select_aromatic_points
 
 
-def gen_oscs(
-    fchk_file: str,
-    mol: RDMol,
-    mode: str,
-    reuse = False
-) -> List[Tuple[int, np.ndarray]]:
-    atom_oscs = []
-    for a in mol.GetAtoms():
-        if a.GetAtomicNum() <= 6:
-            continue
-        a_points = select_atomic_points(
-            fchk_path = fchk_file,
-            mol = mol,
-            atom = a,
-            mode = mode,
-            reuse = reuse
-        )
-        atom_oscs.extend([(a.GetIdx(), ap) for ap in a_points])
-    ring_oscs = []
-    for cycle in Chem.GetSSSR(mol):
-        crit_point = select_aromatic_points(fchk_file, mol, cycle, mode, reuse)
-        ring_oscs.append(([c for c in cycle], crit_point[0]))
-    return atom_oscs, ring_oscs
-
+HELP_FCHK = 'path to .fchk file'
+HELP_RSF = 'real-space function for off-site charges generation. Default is ELF'
+HELP_OSCS_COUNT = 'amount of OSCs to put on oxygen and sulfur atoms. Default is 3, which puts 2 OSCs on carbonyl oxygen and 1 OSCs elsewhere'
+HELP_FLUORINE = 'whether to generate OSCs along the C−F bond. Default is False'
+HELP_NO_OSCS = 'toggle this parameter to disable OSCs generation'
+HELP_REUSE = 'whether to store files, generated during the procedure. Can speed up recalculations but makes folder a bit messy'
 
 parser = argparse.ArgumentParser()
-parser.add_argument('fchk', help='path to .fchk file')
-parser.add_argument('--no-oscs', action='store_false', help='whether to generate OSCs')
+parser.add_argument('fchk', help=HELP_FCHK)
+parser.add_argument('--rsf', default='ELF', help=HELP_RSF, choices=['ELF', 'Lap', 'LOL'])
+parser.add_argument('--oscs-count', type=int, default=3, help=HELP_OSCS_COUNT, choices=[1, 2, 3])
+parser.add_argument('--fluorine', action='store_true', help=HELP_FLUORINE)
+parser.add_argument('--no-oscs', action='store_true', help=HELP_NO_OSCS)
+parser.add_argument('--reuse', action='store_false', help=HELP_REUSE)
 args = parser.parse_args()
 
 fchk_file = os.path.abspath(args.fchk)
@@ -51,9 +45,26 @@ os.chdir(working_dir)
 mol_file = '%s.mol' % name
 pybel_fchk.write('mol', mol_file, overwrite=True)
 mol = Chem.MolFromMolFile(mol_file, removeHs=False, sanitize=False)
+conformer = mol.GetConformer()
 
-atom_oscs, ring_oscs = gen_oscs(fchk_file, mol, 'ELF_2_X', reuse=True)
-with open('%s.xyz' % name, 'w+') as xyz:
+if args.no_oscs:
+    atom_oscs = []
+    ring_oscs = []
+else:
+    atom_oscs, ring_oscs = gen_oscs(
+        fchk_file = fchk_file,
+        mol = mol,
+        mode_rsf = args.rsf,
+        mode_number = args.oscs_count,
+        mode_fluorine = args.fluorine,
+        reuse=True
+    )
+
+if args.no_oscs:
+    xyz_name = '%s_no.xyz' % name
+else:
+    xyz_name = '%s_%s%d%s.xyz' % (name, args.rsf, args.oscs_count, 'F' if args.fluorine else '')
+with open(xyz_name, 'w+') as xyz:
     xyz.write('%d\n%s\n' % (len(mol.GetAtoms()) + len(atom_oscs) + len(ring_oscs), name))
     confomer = mol.GetConformers()[0]
     for a in mol.GetAtoms():
@@ -72,6 +83,130 @@ with open('%s.xyz' % name, 'w+') as xyz:
             coords[2]
         ))
 
+points_filename = '%s.esp' % name
+if os.path.exists(points_filename):
+    points = np.loadtxt(points_filename)
+else:
+    points = gen_points(
+        [conformer.GetAtomPosition(i) for i in range(len(mol.GetAtoms()))],
+        [a.GetSymbol() for a in mol.GetAtoms()]
+    )
+    points = calculate_rsf_at_points(
+        fchk_file,
+        points,
+        SpaceFunctions.ESP,
+    )
+    np.savetxt(points_filename, points)
+
+qf, errors = fit_charges(
+    symbols = [a.GetSymbol().upper() for a in mol.GetAtoms()],
+    coords = [conformer.GetAtomPosition(i) for i in range(len(mol.GetAtoms()))],
+    sample_points = points,
+    extra = [o for _, o in atom_oscs + ring_oscs]
+)
+atom_charges = qf[1][:len(mol.GetAtoms())]
+oscs_charges = qf[1][len(mol.GetAtoms()):]
+
+create_zmat(mol)
+create_params('init')
+create_cmd('init')
+subprocess.run('bash bosscmd', check=True, shell=True)
+create_params('internal')
+create_cmd('internal')
+subprocess.run('bash bosscmd', check=True, shell=True)
+create_params('end')
+create_cmd('end')
+subprocess.run('bash bosscmd', check=True, shell=True)
+
+disp = get_dispersion()
+bonds_energy, angles_energy, tors_energy = get_bonded()
+
+ff = ForceField()
+xml_atoms = []
+for a in mol.GetAtoms():
+    i = a.GetIdx()
+    c = conformer.GetAtomPosition(i)
+    ff.atom_types.append(AtomType(
+        name = 'at%s_%02d' % (a.GetSymbol(), i),
+        class_name = 'cl%s_%02d' % (a.GetSymbol(), i),
+        element = a.GetSymbol(),
+        mass = a.GetMass()
+    ))
+    ff.nonbonded_forces.append(NonbondedAtom(
+        charge = atom_charges[i],
+        sigma = disp[i]['sigma'],
+        epsilon = disp[i]['epsilon'],
+        atom_type = ff.atom_types[-1]
+    ))
+    xml_atoms.append(FFAtom(
+        name = '%s%d' % (a.GetSymbol(), i),
+        atom_type = ff.atom_types[-1]
+    ))
+xml_bonds = []
+for b in mol.GetBonds():
+    a1, a2 = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
+    xml_bonds.append(FFBond(indices=(a1, a2)))
+for be in bonds_energy:
+    ff.bond_forces.append(HarmonicBond(
+        length = be['r_eq'],
+        k = be['k'],
+        classes = tuple(ff.atom_types[i].class_name for i in be['atoms'])
+    ))
+for ae in angles_energy:
+    ff.angle_forces.append(HarmonicAngle(
+        angle = ae['a_eq'],
+        k = ae['k'],
+        classes = tuple(ff.atom_types[i].class_name for i in ae['atoms'])
+    ))
+
+ff.residues.append(Residue('UNL', xml_atoms, xml_bonds))
+
+for i, (ai, osc) in enumerate(atom_oscs):
+    neighb = [a.GetIdx() for a in mol.GetAtomWithIdx(ai).GetNeighbors()]
+    neighb = [ai] + neighb
+    atom_coords = [confomer.GetAtomPosition(n) for n in neighb]
+    if len(neighb) == 2 and not are_colinear([osc] + atom_coords):
+        neighb.extend([
+            a.GetIdx()
+                for a in mol.GetAtomWithIdx(neighb[-1]).GetNeighbors()
+                    if a.GetIdx() not in neighb
+        ])
+        atom_coords = [confomer.GetAtomPosition(n) for n in neighb]
+    if len(neighb) == 2:
+        vs_coords = AverageTwo.from_coordinates(
+            osc,
+            atoms = neighb,
+            atom_coords = atom_coords
+        )
+    else:
+        vs_coords = LocalCoords.from_coordinates(
+            vs = osc,
+            atoms = neighb,
+            atom_coords = atom_coords
+        )
+    ff.add_virtual_site(
+        charge = oscs_charges[i],
+        coords = vs_coords,
+        res = ff.residues[0]
+    )
+for i, (cycle, osc) in enumerate(ring_oscs):
+    atom_coords = [confomer.GetAtomPosition(c) for c in cycle]
+    vs_coords = LocalCoords.from_coordinates(
+        vs = osc,
+        atoms = cycle,
+        atom_coords = atom_coords
+    )
+    ff.add_virtual_site(
+        charge = oscs_charges[len(atom_oscs) + i],
+        coords = vs_coords,
+        res = ff.residues[0]
+    )
+
+if args.no_oscs:
+    xml_name = '%s_no.xml' % name
+else:
+    xml_name = '%s_%s%d%s.xml' % (name, args.rsf, args.oscs_count, 'F' if args.fluorine else '')
+ff.to_xml(xml_name)
 
 # for b in mol.GetBonds():
 #     print(b.GetBeginAtomIdx(), b.GetEndAtomIdx())

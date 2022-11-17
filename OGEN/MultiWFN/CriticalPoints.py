@@ -27,6 +27,8 @@ MWFN_CPS_RETURN = '0\n'
 MWFN_RETURN = '-10\n'
 MWFN_EXIT = 'q\n'
 
+MWFN_EXECUTABLE = 'Multiwfn'
+
 
 class SpaceFunctions(Enum):
     Laplasian = 3
@@ -56,7 +58,7 @@ def generate_molecular_cps(
     if os.path.exists('CPs.txt'):
         os.remove('CPs.txt')
     subprocess.run([
-        'Multiwfn.exe',
+        MWFN_EXECUTABLE,
         fchk_path
     ], input = (
         MWFN_TOPOLOGY + MWFN_SEL_FUN + space_function + 
@@ -84,7 +86,7 @@ def generate_atomic_cps(
     if os.path.exists('CPs.txt'):
         os.remove('CPs.txt')
     subprocess.run([
-        'Multiwfn.exe',
+        MWFN_EXECUTABLE,
         fchk_path
     ], input = (
         MWFN_TOPOLOGY + MWFN_SEL_FUN + space_function +
@@ -111,7 +113,7 @@ def generate_point_cps(
     if os.path.exists('CPs.txt'):
         os.remove('CPs.txt')
     subprocess.run([
-        'Multiwfn.exe',
+        MWFN_EXECUTABLE,
         fchk_path
     ], input = (
         MWFN_TOPOLOGY + MWFN_SEL_FUN + space_function +
@@ -174,7 +176,7 @@ def read_cps(
     with open(filename, 'r') as f:
         for line in f:
             values = line.split()
-            cps[0].append(int(values[0]))
+            cps[0].append(CritPoints(int(values[0])))
             cps[1].append(np.array([
                 float(values[1]),
                 float(values[2]),

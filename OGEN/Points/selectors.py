@@ -6,6 +6,7 @@ from ..MultiWFN.CriticalPoints import CritPoints, SpaceFunctions
 from ..MultiWFN.CriticalPoints import generate_atomic_cps, generate_point_cps, generate_xyz
 from ..MultiWFN.CriticalPoints import save_cps, read_cps
 import numpy as np
+from rdkit import Chem
 from rdkit.Chem.rdchem import Mol as RDMol
 from rdkit.Chem.rdchem import Atom as RDAtom
 
@@ -26,14 +27,11 @@ def select_atomic_points(
     fchk_path: str,
     mol: RDMol,
     atom: RDAtom,
-    mode: str,
+    mode_rsf: SpaceFunctions,
+    mode_number: int,
+    mode_fluorine: bool,
     reuse = False
 ) -> List[np.ndarray]:
-    mode_rsf, mode_number, mode_fluorine = mode.split('_')
-    mode_rsf = TYPES[mode_rsf]
-    mode_number = int(mode_number)
-    mode_fluorine = mode_fluorine == 'F'
-
     element = Elements(atom.GetAtomicNum())
     if not mode_fluorine and element == Elements.F:
         return []
@@ -106,12 +104,12 @@ def select_atomic_points(
             cp_function = select_one_on_reverse
     if mode_cp_type is None or cp_function is None:
         raise Exception('Invalid RSF mode: %s (found type? %r. found function? %r)' % (
-            mode,
+            '_'.join([mode_rsf.name, str(mode_number), 'F' if mode_fluorine else 'X']),
             mode_cp_type is not None,
             cp_function is not None
         ))
     name, _ = os.path.splitext(os.path.basename(fchk_path))
-    name = '%s_%d.cps' % (name, atom.GetIdx())
+    name = '%s_%d_%s.cps' % (name, atom.GetIdx(), mode_rsf.name)
     if reuse and os.path.exists(name):
         all_cps = read_cps(name)
     else:
@@ -131,21 +129,16 @@ def select_aromatic_points(
     fchk_path: str,
     mol: RDMol,
     cycle: List[int],
-    mode: str,
+    mode_rsf: SpaceFunctions,
     reuse = False
 ) -> List[np.ndarray]:
-    mode_rsf, mode_number, mode_fluorine = mode.split('_')
-    mode_rsf = TYPES[mode_rsf]
-    mode_number = int(mode_number)
-    mode_fluorine = mode_fluorine == 'F'
-
     conformer = mol.GetConformers()[0]
     cycle_coords = [conformer.GetAtomPosition(i) for i in cycle]
     if not are_coplanar(cycle_coords):
         return []
     center = sum(cycle_coords, np.zeros(3)) / len(cycle_coords)
     name, _ = os.path.splitext(os.path.basename(fchk_path))
-    name = '%s_%s.cps' % (name, '_'.join([str(c) for c in cycle]))
+    name = '%s_%s_%s.cps' % (name, '_'.join([str(c) for c in cycle]), mode_rsf.name)
     if reuse and os.path.exists(name):
         all_cps = read_cps(name)
     else:
@@ -158,3 +151,39 @@ def select_aromatic_points(
             save_cps(all_cps, name)
     cps_coordinates = select_one_at_center(center, all_cps[1])
     return list(cps_coordinates)
+
+def gen_oscs(
+    fchk_file: str,
+    mol: RDMol,
+    mode_rsf: str,
+    mode_number: int,
+    mode_fluorine: bool,
+    reuse = False
+) -> Tuple[List[Tuple[int, np.ndarray]], List[Tuple[List[int], np.ndarray]]]:
+    mode_rsf = TYPES[mode_rsf]
+    atom_oscs = []
+    for a in mol.GetAtoms():
+        if a.GetAtomicNum() <= 6:
+            continue
+        a_points = select_atomic_points(
+            fchk_path = fchk_file,
+            mol = mol,
+            atom = a,
+            mode_rsf = mode_rsf,
+            mode_number = mode_number,
+            mode_fluorine = mode_fluorine,
+            reuse = reuse
+        )
+        atom_oscs.extend([(a.GetIdx(), ap) for ap in a_points])
+    ring_oscs = []
+    for cycle in Chem.GetSSSR(mol):
+        crit_point = select_aromatic_points(
+            fchk_path = fchk_file,
+            mol = mol,
+            cycle = cycle,
+            mode_rsf = mode_rsf,
+            reuse = reuse
+        )
+        if len(crit_point):
+            ring_oscs.append(([c for c in cycle], crit_point[0]))
+    return atom_oscs, ring_oscs

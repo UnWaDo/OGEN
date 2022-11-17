@@ -3,12 +3,13 @@ import subprocess
 
 import numpy as np
 
-from .CriticalPoints import MWFN_EXIT, SpaceFunctions
+from .CriticalPoints import SpaceFunctions, MWFN_EXECUTABLE
 
 
 MWFN_CALC_GRID = '5\n'
 MWFN_LOAD_POINTS = '100\n'
 MWFN_EXIT = 'q\n'
+
 
 def calculate_rsf_at_points(
     fchk_path: str,
@@ -19,7 +20,7 @@ def calculate_rsf_at_points(
     np.savetxt('points.txt', points, header='%d' % points.shape[0], comments='')
     space_function = '%d\n' % rsf.value
     subprocess.run([
-        'Multiwfn.exe',
+        MWFN_EXECUTABLE,
         fchk_path
     ], input = (
         MWFN_CALC_GRID + space_function + 

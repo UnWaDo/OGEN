@@ -1,9 +1,9 @@
+from itertools import combinations, product
 from typing import List, Tuple
 import numpy as np
+from rdkit.Chem.rdchem import Mol as RDMol
 from .linear_algebra import dist, angle, tors, find_suitable
-from ..Topology.topology import get_connected_indices
-from ..fchk_parser import Elements
-from ...FilesProcessing import Molecule
+
 
 HEADER = 'BOSS Z-matrix by OGEN'
 GEOM_VAR = '                    Geometry Variations follow    (2I4,F12.6)'
@@ -34,16 +34,16 @@ def to_lines(data: List[Tuple[str, int, int, float, int, float, int, float]]) ->
 
 
 def create_atoms_data(
-    atoms: Tuple[List[Elements], List[np.ndarray]]
+    mol: RDMol
 ) -> List[Tuple[str, int, int, float, int, float, int, float]]:
-    elements, coordinates = atoms
+    conformer = mol.GetConformers()[0]
     x = np.array([0., 0., 0.])
     y = np.array([1., 0., 0.])
     z = np.array([1., 1., 0.])
 
-    act_coords = [x, y, z] + coordinates
-    act_elements = ['X', 'X', 'X'] + [e.name for e in elements]
-    act_numbers = [-1, -1, -1] + [e.value for e in elements]
+    act_coords = [x, y, z] + [np.array(p) for p in conformer.GetPositions()]
+    act_elements = ['X', 'X', 'X'] + [a.GetSymbol() for a in mol.GetAtoms()]
+    act_numbers = [-1, -1, -1] + [a.GetAtomicNum() for a in mol.GetAtoms()]
     atoms_data = []
     for i, coord in enumerate(act_coords):
         cs = [c for c in act_coords[:i]]
@@ -90,37 +90,61 @@ def split_variable_and_additional(
     return variable, additional
 
 
-def create_bonds(mol: Molecule) -> List[str]:
-    bonds = [[ba.num for ba in bonded] for bonded in mol.get_bonds()]
+def create_bonds(mol: RDMol) -> List[str]:
+    bonds = [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in mol.GetBonds()]
     lines = [VAR_BONDS, ADD_BONDS]
     for bd in bonds:
-        lines.append(''.join([f'{b + 3:4d}' for b in bd]))
+        lines.append(''.join([f'{b + 4:4d}' for b in bd]))
     return lines
 
 
-def create_angles(mol: Molecule) -> List[str]:
-    angles = [[ba.num for ba in bonded] for bonded in mol.get_angles()]
+def create_angles(mol: RDMol) -> List[str]:
+    angles = []
+    for a in mol.GetAtoms():
+        neighbors = a.GetNeighbors()
+        if len(neighbors) < 2:
+            continue
+        for a1, a2 in combinations(neighbors, 2):
+            angles.append((a1.GetIdx(), a.GetIdx(), a2.GetIdx()))
     lines = [VAR_ANGLES, ADD_ANGLES]
     for bd in angles:
-        lines.append(''.join([f'{b + 3:4d}' for b in bd]))
+        lines.append(''.join([f'{b + 4:4d}' for b in bd]))
     return lines
 
 
-def create_torsions(mol: Molecule) -> List[str]:
-    torsions = [[ba.num for ba in bonded[:-1]] for bonded in mol.get_torsions()]
+def create_torsions(mol: RDMol) -> List[str]:
+    propers = []
+    impropers = []
+    for bond in mol.GetBonds():
+        a2, a3 = bond.GetBeginAtom(), bond.GetEndAtom()
+        starts = [a for a in a2.GetNeighbors() if a != a3]
+        if len(starts) < 1:
+            continue
+        ends = [a for a in a3.GetNeighbors()
+            if a not in starts and a != a2
+        ]
+        if len(ends) < 1:
+            continue
+        for a1, a4 in product(starts, ends):
+            propers.append([a1.GetIdx(), a2.GetIdx(), a3.GetIdx(), a4.GetIdx()])
+    for a in mol.GetAtoms():
+        neighbors = a.GetNeighbors()
+        if len(neighbors) != 3:
+            continue
+        a2, a3, a4 = neighbors
+        impropers.append([a.GetIdx(), a2.GetIdx(), a3.GetIdx(), a4.GetIdx()])
+        impropers.append([a.GetIdx(), a3.GetIdx(), a4.GetIdx(), a2.GetIdx()])
+        impropers.append([a.GetIdx(), a4.GetIdx(), a2.GetIdx(), a3.GetIdx()])
+    torsions = propers + impropers
     lines = [VAR_TORS, ADD_TORS]
     for bd in torsions:
-        lines.append(''.join([f'{b + 3:4d}' for b in bd]))
+        lines.append(''.join([f'{b + 4:4d}' for b in bd]))
     return lines
 
 
-def create_zmat(atoms: Tuple[List[Elements], List[np.ndarray]], output: str = 'optzmat'):
+def create_zmat(mol: RDMol, output: str = 'optzmat'):
     lines = [HEADER]
-    elements, coordinates = atoms
-
-    bonded_indices = [get_connected_indices(atoms, i) for i in range(len(elements))]
-    mol = Molecule.create_from_elements(elements=[e.name for e in elements], bonds=bonded_indices)
-    atoms_data = create_atoms_data(atoms)
+    atoms_data = create_atoms_data(mol)
 
     lines += to_lines(atoms_data)
     lines.append(GEOM_VAR)
