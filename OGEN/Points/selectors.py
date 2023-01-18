@@ -109,7 +109,7 @@ def select_atomic_points(
             cp_function is not None
         ))
     name, _ = os.path.splitext(os.path.basename(fchk_path))
-    name = '%s_%d_%s.cps' % (name, atom.GetIdx(), mode_rsf.name)
+    name = '%s_%d_%s%s.cps' % (name, atom.GetIdx(), mode_rsf.name, 'F' if mode_fluorine else '')
     if reuse and os.path.exists(name):
         all_cps = read_cps(name)
     else:

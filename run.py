@@ -30,7 +30,7 @@ parser.add_argument('--rsf', default='ELF', help=HELP_RSF, choices=['ELF', 'Lap'
 parser.add_argument('--oscs-count', type=int, default=3, help=HELP_OSCS_COUNT, choices=[1, 2, 3])
 parser.add_argument('--fluorine', action='store_true', help=HELP_FLUORINE)
 parser.add_argument('--no-oscs', action='store_true', help=HELP_NO_OSCS)
-parser.add_argument('--reuse', action='store_false', help=HELP_REUSE)
+parser.add_argument('--no-reuse', action='store_true', help=HELP_REUSE)
 args = parser.parse_args()
 
 fchk_file = os.path.abspath(args.fchk)
@@ -89,7 +89,7 @@ if os.path.exists(points_filename):
 else:
     points = gen_points(
         [conformer.GetAtomPosition(i) for i in range(len(mol.GetAtoms()))],
-        [a.GetSymbol() for a in mol.GetAtoms()]
+        [a.GetSymbol().upper() for a in mol.GetAtoms()]
     )
     points = calculate_rsf_at_points(
         fchk_file,

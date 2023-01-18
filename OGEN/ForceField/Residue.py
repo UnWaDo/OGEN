@@ -1,6 +1,7 @@
 import xml.etree.ElementTree as ET
 from typing import List
 
+from rdkit.Chem.rdchem import Atom
 from rdkit.Chem.rdchem import Mol as RDMol
 from rdkit.Chem.rdchem import RWMol as RDMolEdit
 
@@ -62,7 +63,7 @@ class Residue:
 
     @staticmethod
     def create_residues(
-        residues: List['Residue'],
+        residues: List['Reswdue'],
         parent: ET.Element = None
     ) -> ET.Element:
         if parent is not None:
@@ -85,7 +86,7 @@ class Residue:
         mol = RDMolEdit()
         atoms = [a for i, a in enumerate(self.atoms) if i not in vsites_idx]
         for a in atoms:
-            mol.AddAtom(Elements[a.type.element].value)
+            mol.AddAtom(Atom(Elements[a.type.element].value))
         for b in self.bonds:
             if b.from_id is not None:
                 a1 = atoms.index(self.atoms[b.from_id])

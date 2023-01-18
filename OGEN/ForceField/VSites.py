@@ -3,6 +3,7 @@ import xml.etree.ElementTree as ET
 from typing import Dict, List, Tuple
 
 import numpy as np
+from OGEN.Points.la_selectors import are_coplanar
 
 
 class VSCoords:
@@ -76,7 +77,6 @@ class LocalCoords(VSCoords):
         ws[1][0], ws[1][1] = -1, 1
         ws[2][0], ws[2][2] = -1, 1
         atom_coords = np.array(atom_coords)
-
         origin = np.einsum('ij, i -> j', atom_coords, ws[0])
         dirs = np.zeros((3, 3))
         dirs[:, :2] = np.einsum('ij, ki -> jk', atom_coords, ws[1:])
@@ -95,6 +95,7 @@ class LocalCoords(VSCoords):
     def to_coordinate(self, atom_coords: List[np.ndarray]) -> np.ndarray:
         atom_coords = np.array(atom_coords)
         origin = np.einsum('ij, i -> j', atom_coords, self.wo)
+        print(origin)
         dirs = np.zeros((3, 3))
         dirs[:, :2] = np.einsum('ij, ki -> jk', atom_coords, [self.wx, self.wy])
         dirs[:, 2] = np.cross(dirs[:, 0], dirs[:, 1])
