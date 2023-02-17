@@ -34,9 +34,12 @@ def to_lines(data: List[Tuple[str, int, int, float, int, float, int, float]]) ->
 
 
 def create_atoms_data(
-    mol: RDMol
+    mol: RDMol,
+    var_bonds: List[int],
+    var_angles: List[int],
+    var_torsions: List[int]
 ) -> List[Tuple[str, int, int, float, int, float, int, float]]:
-    conformer = mol.GetConformers()[0]
+    conformer = mol.GetConformer()
     x = np.array([0., 0., 0.])
     y = np.array([1., 0., 0.])
     z = np.array([1., 1., 0.])
@@ -45,16 +48,17 @@ def create_atoms_data(
     act_elements = ['X', 'X', 'X'] + [a.GetSymbol() for a in mol.GetAtoms()]
     act_numbers = [-1, -1, -1] + [a.GetAtomicNum() for a in mol.GetAtoms()]
     atoms_data = []
+    vars = [t[:-1] for t in var_torsions] + var_angles + var_bonds
     for i, coord in enumerate(act_coords):
-        cs = [c for c in act_coords[:i]]
+        cs = act_coords[:i]
         j, k, l = 0, 0, 0
         jd, ka, lt = 0, 0, 0
         if len(cs) >= 3:
-            j, k, l = find_suitable(coord, cs, 3)
+            j, k, l = find_suitable(coord, cs, 3, vars)
         elif len(cs) >= 2:
-            j, k = find_suitable(coord, cs, 2)
+            j, k = find_suitable(coord, cs, 2, vars)
         elif len(cs) >= 1:
-            j, = find_suitable(coord, cs, 1)
+            j, = find_suitable(coord, cs, 1, vars)
         if j:
             jd = dist(coord, act_coords[j-1])
         if k:
@@ -69,92 +73,147 @@ def create_atoms_data(
     return atoms_data
 
 
-def split_variable_and_additional(
-    torsions: List[Tuple[int, int, int, int, bool]]
-) -> Tuple[List[Tuple[int, int, int, int, bool]], List[Tuple[int, int, int, int, bool]]]:
-    varied_atoms = set()
-    variable = []
-    additional = []
-    for torsion in torsions:
-        if not torsion[-1] and torsion[0] == max(torsion[:-1]) \
-            and not torsion[0] in varied_atoms:
-            variable.append(torsion)
-            varied_atoms.add(torsion[0])
+def create_bonds(mol: RDMol) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
+    bonds = sorted([tuple(sorted([
+        b.GetBeginAtomIdx(), b.GetEndAtomIdx()
+    ], reverse=True)) for b in mol.GetBonds()])
+    var_bonds = []
+    add_bonds = []
+    for b in bonds:
+        for b_var in var_bonds:
+            if b[0] == b_var[0]:
+                break
         else:
-            check = tuple(torsion[:3])
-            for v in variable:
-                if check == tuple(v[:3]):
-                    break
-            else:
-                additional.append(torsion)
-    return variable, additional
-
-
-def create_bonds(mol: RDMol) -> List[str]:
-    bonds = [(b.GetBeginAtomIdx(), b.GetEndAtomIdx()) for b in mol.GetBonds()]
-    lines = [VAR_BONDS, ADD_BONDS]
-    for bd in bonds:
-        lines.append(''.join([f'{b + 4:4d}' for b in bd]))
-    return lines
-
-
-def create_angles(mol: RDMol) -> List[str]:
-    angles = []
-    for a in mol.GetAtoms():
-        neighbors = a.GetNeighbors()
-        if len(neighbors) < 2:
+            var_bonds.append(b)
             continue
-        for a1, a2 in combinations(neighbors, 2):
-            angles.append((a1.GetIdx(), a.GetIdx(), a2.GetIdx()))
-    lines = [VAR_ANGLES, ADD_ANGLES]
-    for bd in angles:
-        lines.append(''.join([f'{b + 4:4d}' for b in bd]))
-    return lines
+        add_bonds.append(b)
+    return var_bonds, add_bonds
 
 
-def create_torsions(mol: RDMol) -> List[str]:
-    propers = []
-    impropers = []
-    for bond in mol.GetBonds():
-        a2, a3 = bond.GetBeginAtom(), bond.GetEndAtom()
-        starts = [a for a in a2.GetNeighbors() if a != a3]
-        if len(starts) < 1:
-            continue
-        ends = [a for a in a3.GetNeighbors()
-            if a not in starts and a != a2
+def create_angles(
+    mol: RDMol,
+    var_bonds: List[int],
+    add_bonds: List[int]
+) -> Tuple[List[Tuple[int, int, int]], List[Tuple[int, int, int]]]:
+    var_angles = []
+    add_angles = []
+    conformer = mol.GetConformer()
+    for b in var_bonds:
+        beginnings = [a.GetIdx() for a in mol.GetAtomWithIdx(b[-1]).GetNeighbors()
+            if a.GetIdx() not in b and a.GetIdx() < b[0]
         ]
-        if len(ends) < 1:
+        for beg in beginnings:
+            if np.isclose(180, angle(*[
+                np.array(conformer.GetAtomPosition(a)) for a in list(b) + [beg]
+            ])):
+                add_angles.append((b[0], b[1], beg))
+            elif len(var_angles) == 0 or var_angles[-1][0] != b[0]:
+                var_angles.append((b[0], b[1], beg))
+            else:
+                add_angles.append((b[0], b[1], beg))
+        endings = [a.GetIdx() for a in mol.GetAtomWithIdx(b[0]).GetNeighbors()
+            if a.GetIdx() not in b and a.GetIdx() < b[-1]
+        ]
+        add_angles.extend([(end, b[0], b[1]) for end in endings])
+    for b in add_bonds:
+        beginnings = [a.GetIdx() for a in mol.GetAtomWithIdx(b[-1]).GetNeighbors()
+            if a.GetIdx() not in b and a.GetIdx() < b[0]
+        ]
+        add_angles.extend([(b[0], b[1], beg) for beg in beginnings])
+        endings = [a.GetIdx() for a in mol.GetAtomWithIdx(b[0]).GetNeighbors()
+            if a.GetIdx() not in b and a.GetIdx() < b[-1]
+        ]
+        add_angles.extend([(end, b[0], b[1]) for end in endings])
+    return var_angles, add_angles
+
+
+def create_torsions(
+    mol: RDMol,
+    var_angles: List[int],
+    add_angles: List[int]
+) -> Tuple[List[Tuple[int, int, int, int, bool]], List[Tuple[int, int, int, int, bool]]]:
+    var_torsions = []
+    add_torsions = []
+    conformer = mol.GetConformer()
+    for ang in var_angles:
+        beginnings = [a.GetIdx() for a in mol.GetAtomWithIdx(ang[-1]).GetNeighbors()
+            if a.GetIdx() not in ang and a.GetIdx() < ang[0]
+        ]
+        for beg in beginnings:
+            if np.isclose(180, angle(*[
+                np.array(conformer.GetAtomPosition(a)) for a in list(ang[1:]) + [beg]
+            ])):
+                continue
+            if len(var_torsions) == 0 or var_torsions[-1][0] != ang[0]:
+                var_torsions.append((ang[0], ang[1], ang[2], beg, False))
+            else:
+                add_torsions.append((ang[0], ang[1], ang[2], beg, False))
+        endings = [a.GetIdx() for a in mol.GetAtomWithIdx(ang[0]).GetNeighbors()
+            if a.GetIdx() not in ang and a.GetIdx() < ang[-1]
+        ]
+        add_torsions.extend([(end, ang[0], ang[1], ang[2], False)
+            for end in endings if not np.isclose(180, angle(*[
+                np.array(conformer.GetAtomPosition(a)) for a in [end] + list(ang[:-1])
+            ]))
+        ])
+    for ang in add_angles:
+        if np.isclose(180, angle(*[np.array(conformer.GetAtomPosition(a)) for a in ang])):
             continue
-        for a1, a4 in product(starts, ends):
-            propers.append([a1.GetIdx(), a2.GetIdx(), a3.GetIdx(), a4.GetIdx()])
+        beginnings = [a.GetIdx() for a in mol.GetAtomWithIdx(ang[-1]).GetNeighbors()
+            if a.GetIdx() not in ang and a.GetIdx() < ang[0]
+        ]
+        add_torsions.extend([(ang[0], ang[1], ang[2], beg, False)
+            for beg in beginnings if not np.isclose(180, angle(*[
+                np.array(conformer.GetAtomPosition(a)) for a in list(ang[1:] + [beg])
+            ]))
+        ])
+        endings = [a.GetIdx() for a in mol.GetAtomWithIdx(ang[0]).GetNeighbors()
+            if a.GetIdx() not in ang and a.GetIdx() < ang[-1]
+        ]
+        add_torsions.extend([(end, ang[0], ang[1], ang[2], False)
+            for end in endings if not np.isclose(180, angle(*[
+                np.array(conformer.GetAtomPosition(a)) for a in [end] + list(ang[:-1])
+            ]))
+        ])
     for a in mol.GetAtoms():
         neighbors = a.GetNeighbors()
-        if len(neighbors) != 3:
-            continue
-        a2, a3, a4 = neighbors
-        impropers.append([a.GetIdx(), a2.GetIdx(), a3.GetIdx(), a4.GetIdx()])
-        impropers.append([a.GetIdx(), a3.GetIdx(), a4.GetIdx(), a2.GetIdx()])
-        impropers.append([a.GetIdx(), a4.GetIdx(), a2.GetIdx(), a3.GetIdx()])
-    torsions = propers + impropers
-    lines = [VAR_TORS, ADD_TORS]
-    for bd in torsions:
-        lines.append(''.join([f'{b + 4:4d}' for b in bd]))
-    return lines
+        if len(neighbors) == 3:
+            a2, a3, a4 = neighbors
+            add_torsions.append((a.GetIdx(), a2.GetIdx(), a3.GetIdx(), a4.GetIdx(), True))
+            add_torsions.append((a.GetIdx(), a3.GetIdx(), a4.GetIdx(), a2.GetIdx(), True))
+            add_torsions.append((a.GetIdx(), a4.GetIdx(), a2.GetIdx(), a3.GetIdx(), True))
+    return var_torsions, add_torsions
 
 
-def create_zmat(mol: RDMol, output: str = 'optzmat'):
+def create_zmat(mol: RDMol, output: str = 'optzmat') -> List[Tuple[int, int, int, int]]:
     lines = [HEADER]
-    atoms_data = create_atoms_data(mol)
-
+    var_bonds, add_bonds = create_bonds(mol)
+    var_angles, add_angles = create_angles(mol, var_bonds, add_bonds)
+    var_torsions, add_torsions = create_torsions(mol, var_angles, add_angles)
+    atoms_data = create_atoms_data(mol, var_bonds, var_angles, var_torsions)
     lines += to_lines(atoms_data)
-    lines.append(GEOM_VAR)
-    lines += create_bonds(mol)
-    lines.append(HARM_CONSTR)
-    lines += create_angles(mol)
-    lines += create_torsions(mol)
+    lines.extend([GEOM_VAR, VAR_BONDS])
+    for bd in var_bonds:
+        lines.append(f'{bd[0] + 1 + 3:4d}')
+    lines.append(ADD_BONDS)
+    for bd in add_bonds:
+        lines.append(''.join([f'{b + 1 + 3:4d}' for b in bd]))
+    lines.extend([HARM_CONSTR, VAR_ANGLES])
+    for ang in var_angles:
+        lines.append(f'{ang[0] + 1 + 3:4d}')
+    lines.append(ADD_ANGLES)
+    for ang in add_angles:
+        lines.append(''.join([f'{a + 1 + 3:4d}' for a in ang]))
+    lines.append(VAR_TORS)
+    for tors in var_torsions:
+        lines.append(f'{tors[0] + 1 + 3:4d}{-1:4d}{-1:4d}{0:12.6f}')
+    lines.append(ADD_TORS)
+    for tors in add_torsions:
+        lines.append(''.join([f'{t + 1 + 3:4d}' for t in tors[:-1]]) + f'{-1:4d}{-1:4d}')
     lines += [DOMAIN, CONF, LOC_HEAT, FINAL]
     with open(output, 'w+') as z:
         z.write('\n'.join(lines))
+    return var_torsions + add_torsions
 
 
 def create_params(stage: str, filename: str = DEFAULT_PARNAME):

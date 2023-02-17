@@ -1,15 +1,13 @@
 import argparse
-import math
 import os
-import subprocess
 
 import numpy as np
-from OGEN.ForceField import (AtomType, FFAtom, FFBond, ForceField,
-                             HarmonicAngle, HarmonicBond, NonbondedAtom,
+from OGEN.ForceField import (AtomType, FFAtom, FFBond, ForceField, Torsion,
+                             PeriodicTorsion, HarmonicAngle, HarmonicBond, NonbondedAtom,
                              Residue)
 from OGEN.ForceField.VSites import AverageTwo, LocalCoords
 from OGEN.MultiWFN import SpaceFunctions, calculate_rsf_at_points
-from OGEN.OPLS import create_cmd, create_params, create_zmat, get_bonded, get_dispersion
+from OGEN.OPLS import calc_opls_parameters
 from OGEN.Points.la_selectors import are_colinear
 from OGEN.Points.selectors import gen_oscs
 from OGEN.RESP import fit_charges, gen_points
@@ -107,19 +105,7 @@ qf, errors = fit_charges(
 atom_charges = qf[1][:len(mol.GetAtoms())]
 oscs_charges = qf[1][len(mol.GetAtoms()):]
 
-create_zmat(mol)
-create_params('init')
-create_cmd('init')
-subprocess.run('bash bosscmd', check=True, shell=True)
-create_params('internal')
-create_cmd('internal')
-subprocess.run('bash bosscmd', check=True, shell=True)
-create_params('end')
-create_cmd('end')
-subprocess.run('bash bosscmd', check=True, shell=True)
-
-disp = get_dispersion()
-bonds_energy, angles_energy, tors_energy = get_bonded()
+disp, bonds_energy, angles_energy, tors_energy = calc_opls_parameters(mol)
 
 ff = ForceField()
 xml_atoms = []
@@ -157,6 +143,18 @@ for ae in angles_energy:
         angle = ae['a_eq'],
         k = ae['k'],
         classes = tuple(ff.atom_types[i].class_name for i in ae['atoms'])
+    ))
+for te in tors_energy:
+    if not sum(te['vs']):
+        continue
+    ff.torsion_forces.append(PeriodicTorsion(
+        params = [Torsion(
+            phase = np.pi if i % 2 else 0,
+            k = v,
+            periodicity = i + 1
+        ) for i, v in enumerate(te['vs'])],
+        classes = tuple(ff.atom_types[i].class_name for i in te['atoms']),
+        is_improper = te['improper']
     ))
 
 ff.residues.append(Residue('UNL', xml_atoms, xml_bonds))
@@ -207,19 +205,3 @@ if args.no_oscs:
 else:
     xml_name = '%s_%s%d%s.xml' % (name, args.rsf, args.oscs_count, 'F' if args.fluorine else '')
 ff.to_xml(xml_name)
-
-# for b in mol.GetBonds():
-#     print(b.GetBeginAtomIdx(), b.GetEndAtomIdx())
-# if args.mode != 'no_oscs':
-#     atom_oscs, ring_oscs = gen_oscs(args.fchk, atoms, args.mode)
-# else:
-#     atom_oscs = []
-#     ring_oscs = []
-# mol2 = Chem.MolFromSmiles('OC(=O)C')
-
-# print([i for i in range(mol.GetNumAtoms())])
-# print(mol.GetSubstructMatches(mol2))
-
-# print(Chem.MolToMolBlock(mol))
-# for f in add_files:
-#     os.remove(f)

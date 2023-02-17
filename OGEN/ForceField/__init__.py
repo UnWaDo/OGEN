@@ -5,6 +5,6 @@ from .ForceField import ForceField
 from .HarmonicAngle import HarmonicAngle
 from .HarmonicBond import HarmonicBond
 from .NonbondedAtom import NonbondedAtom
-from .PeriodicTorsion import PeriodicTorsion
+from .PeriodicTorsion import Torsion, PeriodicTorsion
 from .Residue import Residue
 from .VSites import VirtualSite, VSCoords

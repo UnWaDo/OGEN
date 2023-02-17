@@ -26,27 +26,23 @@ def tors(a1: np.ndarray, a2: np.ndarray, a3: np.ndarray, a4: np.ndarray) -> floa
     return np.degrees(np.arctan2(y, x))
 
 
-def find_suitable(coord, cs, n):
+def find_suitable(coord, cs, n, vars):
     if n > 3:
         raise Exception('Unimplemented n: %d' % n)
+    atom_n = len(cs)
+    if n > atom_n:
+        raise Exception('Not enough suitable coordinates (exp %d, found %d)' % (atom_n, n))
+    result = []
+    for v in vars:
+        if atom_n - 3 == v[0]:
+            result = [num + 4 for num in v[1:n+1]]
+            break
+    if len(result) >= n:
+        return tuple(result[:n])
     cs = [(i, c) for i, c in enumerate(cs)]
-    cs = sorted(cs[3:], key=lambda x: np.linalg.norm(coord - x[1])) + list(reversed(cs[:3]))
-    if n > len(cs):
-        raise Exception('Not enough suitable coordinates (exp %d, found %d)' % (len(cs), n))
-    if n <= 2:
-        return [i + 1 for i, _ in cs[:n]]
-    cj = cs[0][1]
-    for k, ck in cs[1:]:
-        if not are_colinear([coord, cj, ck]):
-            break
-    else:
-        raise Exception('Impossible to build Z-matrix')
-    for l, cl in cs[1:]:
-        if l == k:
-            continue
-        if not are_colinear([cj, ck, cl]):
-            break
-    else:
-        raise Exception('Impossible to build Z-matrix')
-    return cs[0][0] + 1, k + 1, l + 1
-
+    for i, c in reversed(cs):
+        if len(result) < 1 or not are_colinear([coord] + [cs[r - 1][1] for r in result] + [c]):
+            result.append(i + 1)
+        if len(result) >= n:
+            return tuple(result[:n])
+    raise Exception('Impossible to build Z-matrix')
