@@ -21,6 +21,7 @@ HELP_OSCS_COUNT = 'amount of OSCs to put on oxygen and sulfur atoms. Default is 
 HELP_FLUORINE = 'whether to generate OSCs along the C−F bond. Default is False'
 HELP_NO_OSCS = 'toggle this parameter to disable OSCs generation'
 HELP_REUSE = 'whether to store files, generated during the procedure. Can speed up recalculations but makes folder a bit messy'
+HELP_NO_RESP = 'disables OSCs calculations and charges evaluation using RESP'
 
 parser = argparse.ArgumentParser()
 parser.add_argument('fchk', help=HELP_FCHK)
@@ -29,6 +30,7 @@ parser.add_argument('--oscs-count', type=int, default=3, help=HELP_OSCS_COUNT, c
 parser.add_argument('--fluorine', action='store_true', help=HELP_FLUORINE)
 parser.add_argument('--no-oscs', action='store_true', help=HELP_NO_OSCS)
 parser.add_argument('--no-reuse', action='store_true', help=HELP_REUSE)
+parser.add_argument('--no-resp', action='store_true', help=HELP_NO_RESP)
 args = parser.parse_args()
 
 fchk_file = os.path.abspath(args.fchk)
@@ -45,7 +47,7 @@ pybel_fchk.write('mol', mol_file, overwrite=True)
 mol = Chem.MolFromMolFile(mol_file, removeHs=False, sanitize=False)
 conformer = mol.GetConformer()
 
-if args.no_oscs:
+if args.no_oscs or args.no_resp:
     atom_oscs = []
     ring_oscs = []
 else:
@@ -58,7 +60,7 @@ else:
         reuse=True
     )
 
-if args.no_oscs:
+if args.no_oscs or args.no_resp:
     xyz_name = '%s_no.xyz' % name
 else:
     xyz_name = '%s_%s%d%s.xyz' % (name, args.rsf, args.oscs_count, 'F' if args.fluorine else '')
@@ -84,7 +86,7 @@ with open(xyz_name, 'w+') as xyz:
 points_filename = '%s.esp' % name
 if os.path.exists(points_filename):
     points = np.loadtxt(points_filename)
-else:
+elif not args.no_resp:
     points = gen_points(
         [conformer.GetAtomPosition(i) for i in range(len(mol.GetAtoms()))],
         [a.GetSymbol().upper() for a in mol.GetAtoms()]
@@ -96,16 +98,19 @@ else:
     )
     np.savetxt(points_filename, points)
 
-qf, errors = fit_charges(
-    symbols = [a.GetSymbol().upper() for a in mol.GetAtoms()],
-    coords = [conformer.GetAtomPosition(i) for i in range(len(mol.GetAtoms()))],
-    sample_points = points,
-    extra = [o for _, o in atom_oscs + ring_oscs]
-)
-atom_charges = qf[1][:len(mol.GetAtoms())]
-oscs_charges = qf[1][len(mol.GetAtoms()):]
-
 disp, bonds_energy, angles_energy, tors_energy = calc_opls_parameters(mol)
+if not args.no_resp:
+    qf, errors = fit_charges(
+        symbols = [a.GetSymbol().upper() for a in mol.GetAtoms()],
+        coords = [conformer.GetAtomPosition(i) for i in range(len(mol.GetAtoms()))],
+        sample_points = points,
+        extra = [o for _, o in atom_oscs + ring_oscs]
+    )
+    atom_charges = qf[1][:len(mol.GetAtoms())]
+    oscs_charges = qf[1][len(mol.GetAtoms()):]
+else:
+    atom_charges = [d['charge'] for d in disp]
+    oscs_charges = []
 
 ff = ForceField()
 xml_atoms = []
@@ -202,6 +207,8 @@ for i, (cycle, osc) in enumerate(ring_oscs):
 
 if args.no_oscs:
     xml_name = '%s_no.xml' % name
+elif args.no_resp:
+    xml_name = '%s_opls.xml' % name
 else:
     xml_name = '%s_%s%d%s.xml' % (name, args.rsf, args.oscs_count, 'F' if args.fluorine else '')
 ff.to_xml(xml_name)

@@ -41,7 +41,10 @@ def find_suitable(coord, cs, n, vars):
         return tuple(result[:n])
     cs = [(i, c) for i, c in enumerate(cs)]
     for i, c in reversed(cs):
-        if len(result) < 1 or not are_colinear([coord] + [cs[r - 1][1] for r in result] + [c]):
+        if i + 1 not in result and (
+            len(result) < 1 or
+                not are_colinear([coord] + [cs[r - 1][1] for r in result] + [c])
+        ):
             result.append(i + 1)
         if len(result) >= n:
             return tuple(result[:n])

@@ -164,7 +164,7 @@ def create_torsions(
         ]
         add_torsions.extend([(ang[0], ang[1], ang[2], beg, False)
             for beg in beginnings if not np.isclose(180, angle(*[
-                np.array(conformer.GetAtomPosition(a)) for a in list(ang[1:] + [beg])
+                np.array(conformer.GetAtomPosition(a)) for a in list(ang[1:]) + [beg]
             ]))
         ])
         endings = [a.GetIdx() for a in mol.GetAtomWithIdx(ang[0]).GetNeighbors()

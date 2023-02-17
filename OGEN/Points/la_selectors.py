@@ -180,6 +180,6 @@ def are_colinear(coordinates: List[np.ndarray]) -> bool:
         vector = coordinate - coordinates[0]
         vector /= np.linalg.norm(vector)
         metric = abs(np.dot(line, vector))
-        if not math.isclose(metric, 1, abs_tol=1e-2):
+        if not math.isclose(metric, 1, abs_tol=1e-4):
             return False
     return True
