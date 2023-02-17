@@ -63,7 +63,7 @@ class Residue:
 
     @staticmethod
     def create_residues(
-        residues: List['Reswdue'],
+        residues: List['Residue'],
         parent: ET.Element = None
     ) -> ET.Element:
         if parent is not None:
