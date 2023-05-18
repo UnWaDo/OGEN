@@ -60,7 +60,11 @@ for xml_file in xml_files:
     for i, at in enumerate(ff.atom_types):
         old_types.append(at.name)
         old_classes.append(at.class_name)
-        new_classes.append('cl%s_%d' % (name, i))
+        new_classes.append('cl%s_%s_%d' % (
+            at.element if at.element is not None else 'X',
+            name,
+            i
+        ))
         at.name = new_classes[-1][2:]
         at.class_name = new_classes[-1]
     ff.residues[0].name = name
