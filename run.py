@@ -11,6 +11,7 @@ from OGEN.OPLS import calc_opls_parameters
 from OGEN.Points.la_selectors import are_colinear
 from OGEN.Points.selectors import gen_oscs
 from OGEN.RESP import fit_charges, gen_points
+from OGEN.FilesProcessing import from_wfx
 from openbabel import pybel
 from rdkit import Chem
 
@@ -34,7 +35,10 @@ parser.add_argument('--no-resp', action='store_true', help=HELP_NO_RESP)
 args = parser.parse_args()
 
 fchk_file = os.path.abspath(args.fchk)
-pybel_fchk = next(pybel.readfile('fchk', fchk_file))
+if fchk_file.endswith('.fchk'):
+    pybel_fchk = next(pybel.readfile('fchk', fchk_file))
+else:
+    pybel_fchk = from_wfx(fchk_file)
 name, _ = os.path.splitext(os.path.basename(fchk_file))
 
 working_dir = 'OGEN_%s' % name
