@@ -105,7 +105,8 @@ for i, b in enumerate(bars.patches):
 ax.set_ylabel(text[LOCALE]['y'])
 ax.get_xaxis().set_visible(False)
 ax.set_axisbelow(True)
-ax.legend(handles=legend_elements, ncol=2)
+# ax.legend(handles=legend_elements, ncol=2)
+ax.legend(handles=legend_elements, ncol=3, loc='upper center', bbox_to_anchor=(-0.035, -0.35, 1, 0.32))
 ax.grid(visible=True)
 fig.savefig(output, dpi=300, bbox_inches='tight')
 
@@ -143,6 +144,7 @@ for i, b in enumerate(bars.patches):
 ax.set_ylabel(text[LOCALE]['y'])
 ax.get_xaxis().set_visible(False)
 ax.set_axisbelow(True)
-ax.legend(handles=legend_elements, ncol=2)
+# ax.legend(handles=legend_elements, ncol=2)
+ax.legend(handles=legend_elements, ncol=3, loc='upper center', bbox_to_anchor=(-0.035, -0.35, 1, 0.32))
 ax.grid(visible=True)
 fig.savefig(output[:-4] + '_vdw.png', dpi=300, bbox_inches='tight')

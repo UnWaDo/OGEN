@@ -26,7 +26,8 @@ def parse_pdb(file: str) -> Tuple[List[str], List[Molecule], List[str]]:
                 res = int(m.group(4)),
                 coords=[float(m.group(5)), float(m.group(6)), float(m.group(7))]
             ))
-            atoms[-1].type = '%s%d' % (atoms[-1].type, atoms[-1].num)
+            if atoms[-1].type.isalpha():
+                atoms[-1].type = '%s%d' % (atoms[-1].type, atoms[-1].num)
             l = f.readline()
             m = re.match(hetatm, l)
         m = re.match(conect, l)

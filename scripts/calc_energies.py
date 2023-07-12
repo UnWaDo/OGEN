@@ -66,7 +66,8 @@ def calc_energy(structure_path: str, ffs: List[str], opls_lj = False) -> float:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('xml_dir', help='directory with xml files')
-    parser.add_argument('out', help='name of the output file. .csv will be added by default')
+    parser.add_argument('out', default='energies',
+                        help='name of the output file. .csv will be added by default')
     parser.add_argument('pdbs', nargs='+', help='space-separated list of .pdb files')
     args = parser.parse_args()
 
