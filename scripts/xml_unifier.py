@@ -5,15 +5,15 @@ from OGEN.ForceField import *
 
 
 CODES = {
-    'H': 1,
-    'C': 3,
-    'N': 5,
-    'O': 7,
-    'F': 11,
-    'S': 13,
-    'CL': 17,
-    'BR': 23,
-    'I': 29
+    'H': 3,
+    'C': 5,
+    'N': 7,
+    'O': 11,
+    'F': 13,
+    'S': 17,
+    'CL': 23,
+    'BR': 29,
+    'I': 31
 }
 
 
@@ -27,7 +27,7 @@ def compound_code(elements: List[str]):
         else:
             code += CODES[e.upper()] * found[e] * (i + 1)
             found[e] += 1
-    code += 31 * len(elements)
+    code += 37 * len(elements)
     out = ''
     for i in range(3):
         out += chr(ord('A') + (code % 26))
