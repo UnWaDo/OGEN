@@ -3,8 +3,7 @@ from typing import List, TextIO, Tuple
 
 import numpy as np
 
-
-BOHR_TO_ANGSTROM = 0.529177
+from .utils import BOHR_TO_ANGSTROM
 
 
 class Elements(Enum):

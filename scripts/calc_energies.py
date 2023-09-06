@@ -65,14 +65,17 @@ def calc_energy(structure_path: str, ffs: List[str], opls_lj = False) -> float:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('xml_dir', help='directory with xml files')
+    parser.add_argument('xml_dir', help='directory with xml files or xml file with forcefield')
     parser.add_argument('out', default='energies',
                         help='name of the output file. .csv will be added by default')
     parser.add_argument('pdbs', nargs='+', help='space-separated list of .pdb files')
     args = parser.parse_args()
 
     pdbs = args.pdbs
-    xmls = [os.path.join(args.xml_dir, f) for f in os.listdir(args.xml_dir)]
+    if os.path.isdir(args.xml_dir):
+        xmls = [os.path.join(args.xml_dir, f) for f in os.listdir(args.xml_dir)]
+    else:
+        xmls = [args.xml_dir]
     opls_lj = not ('qube' in args.xml_dir)
     energies = []
     for pdb in pdbs:

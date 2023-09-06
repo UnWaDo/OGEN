@@ -1,6 +1,10 @@
+import sys
 import warnings
 import copy
 import numpy as np
+
+
+from .optimizer import bfgs_solver
 
 
 bohr_to_angstrom = 0.52917721092
@@ -65,7 +69,7 @@ def restraint(q, A_unrestrained, resp_a, resp_b, unrestrained_elems, symbols, nu
         # if an element is not hydrogen or if hydrogens are to be restrained
         if symbols[i] not in unrestrained_elems:
             A[i, i] = A_unrestrained[i, i] + resp_a/np.sqrt(q[i]**2 + resp_b**2) * num_conformers
-            # A[i, i] = A_unrestrained[i, i] + resp_a*q[i]/np.sqrt(q[i]**2 + resp_b**2) * num_conformers
+            # A[i, i] = A_unrestrained[i, i] + resp_a*q[i]/np.sqrt(q[i]**2 + resp_b**2) / 2 * num_conformers
 
     return A
 
@@ -245,7 +249,8 @@ def fit(options, data):
         qf.append(q)
         return qf, labelf, note
 
-def fit_charges(symbols, coords, sample_points, extra=[]):
+
+def fit_charges(symbols, coords, sample_points, extra=[], use_bfgs=False, multipoles={}, multipoles_weights={}):
     symbols = [s.upper() for s in symbols]
     options = {
         'WEIGHT': [1],
@@ -257,13 +262,21 @@ def fit_charges(symbols, coords, sample_points, extra=[]):
         'TOLER': 1e-5,
         'MAX_IT': 25,
         'CONSTRAINT_CHARGE': [],
-        'CONSTRAINT_GROUP': []
+        'CONSTRAINT_GROUP': [],
+        'DIPOLES_WEIGHT': multipoles_weights.get('dipoles', 1),
+        'QUADRUPOLES_WEIGHT': multipoles_weights.get('quadrupoles', 1),
     }
     data = {
         'natoms': len(symbols) + len(extra),
         'symbols': symbols + ['X'] * len(extra),
-        'mol_charge': 0
+        'mol_charge': 0,
+        'dipoles': [],
+        'quadrupoles': [],
     }
+
+    if len(multipoles) > 0:
+        use_bfgs = True
+
     esps = sample_points[:,3]
     points = sample_points[:,:-1] * bohr_to_angstrom
     if len(extra):
@@ -277,7 +290,26 @@ def fit_charges(symbols, coords, sample_points, extra=[]):
             invr[i, j] = 1/np.linalg.norm(points[i]-coords[j])
     data['invr'] = [invr * bohr_to_angstrom] # convert to atomic units
 
-    qf, _, _ = fit(options, data)
+    dipole = multipoles.get('dipole')
+    if dipole is not None:
+        data['dipoles'] = [dipole]
+
+    quadrupole = multipoles.get('quadrupole')
+    if quadrupole is not None:
+        data['quadrupoles'] = [quadrupole]
+
+    if not use_bfgs:
+        qf, _, _ = fit(options, data)
+    else:
+        qf, success, message = bfgs_solver(options, data)
+        if not success[0]:
+            print('Optimization error without restrain: %s' % message[0],
+                  file=sys.stderr)
+
+        elif not success[1]:
+            print('Optimization error with restrain: %s' % message[1],
+                  file=sys.stderr)
+
     x_esp = np.einsum('ij, j -> i', data['invr'][0], qf[0])
     x_resp = np.einsum('ij, j -> i', data['invr'][0], qf[1])
     return (qf[0], qf[1]), (np.square(x_esp - esps).sum(), np.square(x_resp - esps).sum())

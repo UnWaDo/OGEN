@@ -6,7 +6,7 @@ from OGEN.ForceField import (AtomType, FFAtom, FFBond, ForceField, Torsion,
                              PeriodicTorsion, HarmonicAngle, HarmonicBond, NonbondedAtom,
                              Residue)
 from OGEN.ForceField.VSites import AverageTwo, LocalCoords
-from OGEN.MultiWFN import SpaceFunctions, calculate_rsf_at_points
+from OGEN.MultiWFN import SpaceFunctions, calculate_rsf_at_points, get_multipoles
 from OGEN.OPLS import calc_opls_parameters
 from OGEN.Points.la_selectors import are_colinear
 from OGEN.Points.selectors import gen_oscs
@@ -23,6 +23,11 @@ HELP_FLUORINE = 'whether to generate OSCs along the C−F bond. Default is False
 HELP_NO_OSCS = 'toggle this parameter to disable OSCs generation'
 HELP_REUSE = 'whether to store files, generated during the procedure. Can speed up recalculations but makes folder a bit messy'
 HELP_NO_RESP = 'disables OSCs calculations and charges evaluation using RESP'
+HELP_USE_BFGS = 'whether to use BFGS to solve for charges instead of standard RESP'
+HELP_NO_RING = 'whether to disable OSC in the middle of the aromatic rings'
+HELP_USE_MULTIPOLES = 'whether to use multipoles to fit charges'
+HELP_WEIGHT_DIPOLE = 'which weight to use for dipole'
+HELP_WEIGHT_QUADRUPOLE = 'which weight to use for quadrupole'
 
 parser = argparse.ArgumentParser()
 parser.add_argument('fchk', help=HELP_FCHK)
@@ -32,6 +37,11 @@ parser.add_argument('--fluorine', action='store_true', help=HELP_FLUORINE)
 parser.add_argument('--no-oscs', action='store_true', help=HELP_NO_OSCS)
 parser.add_argument('--no-reuse', action='store_true', help=HELP_REUSE)
 parser.add_argument('--no-resp', action='store_true', help=HELP_NO_RESP)
+parser.add_argument('--use-bfgs', action='store_true', help=HELP_USE_BFGS)
+parser.add_argument('--no-ring', action='store_true', help=HELP_NO_RING)
+parser.add_argument('--use-multipoles', action='store_true', help=HELP_USE_MULTIPOLES)
+parser.add_argument('--dipole-weight', type=float, default=1, help=HELP_WEIGHT_DIPOLE)
+parser.add_argument('--quadrupole-weight', type=float, default=1e-2, help=HELP_WEIGHT_QUADRUPOLE)
 args = parser.parse_args()
 
 fchk_file = os.path.abspath(args.fchk)
@@ -63,11 +73,13 @@ else:
         mode_fluorine = args.fluorine,
         reuse=True
     )
+    if args.no_ring:
+        ring_oscs = []
 
 if args.no_oscs or args.no_resp:
     xyz_name = '%s_no.xyz' % name
 else:
-    xyz_name = '%s_%s%d%s.xyz' % (name, args.rsf, args.oscs_count, 'F' if args.fluorine else '')
+    xyz_name = '%s_%s%d%s%s.xyz' % (name, args.rsf, args.oscs_count, 'F' if args.fluorine else '', 'NR' if args.no_ring else '')
 with open(xyz_name, 'w+') as xyz:
     xyz.write('%d\n%s\n' % (len(mol.GetAtoms()) + len(atom_oscs) + len(ring_oscs), name))
     confomer = mol.GetConformers()[0]
@@ -104,11 +116,22 @@ elif not args.no_resp:
 
 disp, bonds_energy, angles_energy, tors_energy = calc_opls_parameters(mol)
 if not args.no_resp:
+
+    multipoles = {}
+    if args.use_multipoles:
+        multipoles = get_multipoles(fchk_file, not args.no_reuse)
+
     qf, errors = fit_charges(
         symbols = [a.GetSymbol().upper() for a in mol.GetAtoms()],
         coords = [conformer.GetAtomPosition(i) for i in range(len(mol.GetAtoms()))],
         sample_points = points,
-        extra = [o for _, o in atom_oscs + ring_oscs]
+        extra = [o for _, o in atom_oscs + ring_oscs],
+        use_bfgs=args.use_bfgs,
+        multipoles=multipoles,
+        multipoles_weights={
+            'dipoles': args.dipole_weight,
+            'quadrupoles': args.quadrupole_weight,
+        },
     )
     atom_charges = qf[1][:len(mol.GetAtoms())]
     oscs_charges = qf[1][len(mol.GetAtoms()):]
@@ -209,10 +232,31 @@ for i, (cycle, osc) in enumerate(ring_oscs):
         res = ff.residues[0]
     )
 
+suffixes = []
 if args.no_oscs:
-    xml_name = '%s_no.xml' % name
+    suffixes.append('no')
 elif args.no_resp:
-    xml_name = '%s_opls.xml' % name
+    suffixes.append('opls')
 else:
-    xml_name = '%s_%s%d%s.xml' % (name, args.rsf, args.oscs_count, 'F' if args.fluorine else '')
+    suffixes.append('%s%d%s%s' % (
+        args.rsf, args.oscs_count,
+        'F' if args.fluorine else '',
+        'NR' if args.no_ring else ''
+    ))
+
+if args.use_multipoles:
+    dipole_power = int(np.log10(args.dipole_weight))
+    quadrupole_power = int(np.log10(args.quadrupole_weight))
+
+    suffixes.append('mult-%s%d-%s%d' % (
+        'p' if dipole_power >= 0 else 'n',
+        np.abs(dipole_power),
+        'p' if quadrupole_power >= 0 else 'n',
+        np.abs(quadrupole_power),
+    ))
+elif args.use_bfgs:
+    suffixes.append('bfgs')
+
+
+xml_name = '_'.join([name] + suffixes) + '.xml'
 ff.to_xml(xml_name)
