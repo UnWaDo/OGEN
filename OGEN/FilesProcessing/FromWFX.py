@@ -10,27 +10,39 @@ def from_wfx(path: str) -> pybel.Molecule:
     charge = 0
     with open(path) as file:
         line = file.readline()
-        while (line != '<Number of Nuclei>\n'):
+        while line and line != '<Number of Nuclei>\n':
             line = file.readline()
+
+        if not line:
+            return None
 
         atoms_number = int(file.readline())
 
         line = file.readline()
-        while (line != '<Net Charge>\n'):
+        while line and line != '<Net Charge>\n':
             line = file.readline()
+
+        if not line:
+            return None
 
         charge = int(file.readline())
 
         line = file.readline()
-        while (line != '<Atomic Numbers>\n'):
+        while line and line != '<Atomic Numbers>\n':
             line = file.readline()
+
+        if not line:
+            return None
 
         for i in range(atoms_number):
             elements.append(Elements(int(file.readline())))
 
         line = file.readline()
-        while (line != '<Nuclear Cartesian Coordinates>\n'):
+        while line and line != '<Nuclear Cartesian Coordinates>\n':
             line = file.readline()
+
+        if not line:
+            return None
 
         for i in range(atoms_number):
             coords.append(np.array([

@@ -28,6 +28,7 @@ HELP_NO_RING = 'whether to disable OSC in the middle of the aromatic rings'
 HELP_USE_MULTIPOLES = 'whether to use multipoles to fit charges'
 HELP_WEIGHT_DIPOLE = 'which weight to use for dipole'
 HELP_WEIGHT_QUADRUPOLE = 'which weight to use for quadrupole'
+HELP_ONLY_CHARGES = 'disables calculation of parameters other than charges'
 
 parser = argparse.ArgumentParser()
 parser.add_argument('fchk', help=HELP_FCHK)
@@ -42,6 +43,7 @@ parser.add_argument('--no-ring', action='store_true', help=HELP_NO_RING)
 parser.add_argument('--use-multipoles', action='store_true', help=HELP_USE_MULTIPOLES)
 parser.add_argument('--dipole-weight', type=float, default=1, help=HELP_WEIGHT_DIPOLE)
 parser.add_argument('--quadrupole-weight', type=float, default=1e-2, help=HELP_WEIGHT_QUADRUPOLE)
+parser.add_argument('--only-charges', action='store_true', help=HELP_ONLY_CHARGES)
 args = parser.parse_args()
 
 fchk_file = os.path.abspath(args.fchk)
@@ -114,7 +116,20 @@ elif not args.no_resp:
     )
     np.savetxt(points_filename, points)
 
-disp, bonds_energy, angles_energy, tors_energy = calc_opls_parameters(mol)
+if args.only_charges:
+    disp = [
+        {'sigma': 1, 'epsilon': 0, 'charge': 0}
+        for _ in range(
+            len(mol.GetAtoms()) + len(atom_oscs) + len(ring_oscs)
+        )
+    ]
+    bonds_energy = []
+    angles_energy = []
+    tors_energy = []
+else:
+    disp, bonds_energy, angles_energy, tors_energy = calc_opls_parameters(mol)
+
+
 if not args.no_resp:
 
     multipoles = {}
@@ -123,7 +138,7 @@ if not args.no_resp:
 
     qf, errors = fit_charges(
         symbols = [a.GetSymbol().upper() for a in mol.GetAtoms()],
-        coords = [conformer.GetAtomPosition(i) for i in range(len(mol.GetAtoms()))],
+        coords = np.array([conformer.GetAtomPosition(i) for i in range(len(mol.GetAtoms()))]),
         sample_points = points,
         extra = [o for _, o in atom_oscs + ring_oscs],
         use_bfgs=args.use_bfgs,
