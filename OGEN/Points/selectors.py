@@ -10,7 +10,7 @@ from rdkit import Chem
 from rdkit.Chem.rdchem import Mol as RDMol
 from rdkit.Chem.rdchem import Atom as RDAtom
 
-from ..fchk_parser import Elements
+from ..utils.constants import Elements
 
 
 TYPES = {

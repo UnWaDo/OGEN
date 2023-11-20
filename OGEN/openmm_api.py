@@ -1,15 +1,17 @@
+import io
 import os
 import re
-import io
 from datetime import datetime
 from string import Template
 from typing import Dict, List, Tuple
+
 import numpy as np
 import numpy.typing as npt
-from openmm.app import PDBFile, ForceField, Modeller, Simulation
+from openbabel import openbabel as ob
+from openbabel import pybel
 from openmm import *
-from openmm.unit import kilocalorie_per_mole, picosecond, picoseconds, kelvin
-
+from openmm.app import ForceField, Modeller, PDBFile, Simulation, Topology, Element
+from openmm.unit import kelvin, kilocalorie_per_mole, picosecond, picoseconds, elementary_charge, angstrom
 
 conf_dt = np.dtype([('A', np.int16), ('B', np.int16), ('E', np.float64)])
 ERR_DIFF_SIZE = 'Energies and references has different sizes: %d and %d'
@@ -151,3 +153,44 @@ def parse_structure(path: str) -> Tuple[List[str], npt.ArrayLike]:
             symbols.append(p[0])
             coords.append([float(a) for a in p if not a.isalpha()])
     return symbols, np.array(coords)
+
+def get_charges_and_positions(topology: Topology, positions: np.ndarray,
+                              forcefield: ForceField):
+    """
+        positions: np.ndarray in angstroms
+    """
+    model = Modeller(topology, positions / 10)
+    model.addExtraParticles(forcefield)
+    system = forcefield.createSystem(model.topology)
+    integrator = LangevinMiddleIntegrator(
+        300 * kelvin,
+        1 / picosecond,
+        0.004 * picoseconds
+    )
+    sim = Simulation(model.topology, system, integrator)
+    sim.context.setPositions(model.getPositions())
+    forces = {system.getForce(index).__class__.__name__: system.getForce(
+        index) for index in range(system.getNumForces())}
+    nonbonded_force = forces['NonbondedForce']
+    charges = np.array([nonbonded_force.getParticleParameters(i)[0] / elementary_charge for i in range(nonbonded_force.getNumParticles())])
+    positions = np.array(sim.context.getState(getPositions=True).getPositions() / angstrom)
+    return charges, positions
+
+
+def mol_to_openmm(mol: pybel.Molecule) -> Topology:
+    topology = Topology()
+    chain = topology.addChain()
+    residue = topology.addResidue('UNK', chain)
+
+    atoms = []
+    for atom in mol:
+        atoms.append(
+            topology.addAtom(atom.type,
+                Element.getByAtomicNumber(atom.atomicnum), residue, atom.idx))
+
+    for bond in ob.OBMolBondIter(mol.OBMol):
+        begin = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+        topology.addBond(atoms[begin - 1], atoms[end - 1])
+
+    return topology

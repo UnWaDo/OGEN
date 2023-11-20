@@ -11,12 +11,13 @@ from OGEN.OPLS import calc_opls_parameters
 from OGEN.Points.la_selectors import are_colinear
 from OGEN.Points.selectors import gen_oscs
 from OGEN.RESP import fit_charges, gen_points
-from OGEN.FilesProcessing import from_wfx
+from OGEN.files.reader import read_molecule
+from OGEN.files.writer import to_xyz
 from openbabel import pybel
 from rdkit import Chem
 
 
-HELP_FCHK = 'path to .fchk file'
+HELP_FCHK = 'path to .fchk (or other wavefunction) file'
 HELP_RSF = 'real-space function for off-site charges generation. Default is ELF'
 HELP_OSCS_COUNT = 'amount of OSCs to put on oxygen and sulfur atoms. Default is 3, which puts 2 OSCs on carbonyl oxygen and 1 OSCs elsewhere'
 HELP_FLUORINE = 'whether to generate OSCs along the C−F bond. Default is False'
@@ -46,20 +47,18 @@ parser.add_argument('--quadrupole-weight', type=float, default=1e-2, help=HELP_W
 parser.add_argument('--only-charges', action='store_true', help=HELP_ONLY_CHARGES)
 args = parser.parse_args()
 
-fchk_file = os.path.abspath(args.fchk)
-if fchk_file.endswith('.fchk'):
-    pybel_fchk = next(pybel.readfile('fchk', fchk_file))
-else:
-    pybel_fchk = from_wfx(fchk_file)
-name, _ = os.path.splitext(os.path.basename(fchk_file))
+wavefunction_file = os.path.abspath(args.fchk)
+name, _ = os.path.splitext(os.path.basename(wavefunction_file))
 
-working_dir = 'OGEN_%s' % name
+pybel_molecule = read_molecule(wavefunction_file)
+
+working_dir = f'OGEN_{name}'
 if not os.path.exists(working_dir):
     os.mkdir(working_dir)
 os.chdir(working_dir)
 
-mol_file = '%s.mol' % name
-pybel_fchk.write('mol', mol_file, overwrite=True)
+mol_file = f'{name}.mol'
+pybel_molecule.write('mol', mol_file, overwrite=True)
 mol = Chem.MolFromMolFile(mol_file, removeHs=False, sanitize=False)
 conformer = mol.GetConformer()
 
@@ -68,7 +67,7 @@ if args.no_oscs or args.no_resp:
     ring_oscs = []
 else:
     atom_oscs, ring_oscs = gen_oscs(
-        fchk_file = fchk_file,
+        fchk_file = wavefunction_file,
         mol = mol,
         mode_rsf = args.rsf,
         mode_number = args.oscs_count,
@@ -79,38 +78,26 @@ else:
         ring_oscs = []
 
 if args.no_oscs or args.no_resp:
-    xyz_name = '%s_no.xyz' % name
+    xyz_name = f'{name}_no.xyz'
 else:
-    xyz_name = '%s_%s%d%s%s.xyz' % (name, args.rsf, args.oscs_count, 'F' if args.fluorine else '', 'NR' if args.no_ring else '')
-with open(xyz_name, 'w+') as xyz:
-    xyz.write('%d\n%s\n' % (len(mol.GetAtoms()) + len(atom_oscs) + len(ring_oscs), name))
-    confomer = mol.GetConformers()[0]
-    for a in mol.GetAtoms():
-        coords = confomer.GetAtomPosition(a.GetIdx())
-        xyz.write('%2s %20.8e %20.8e %20.8e\n' % (
-            a.GetSymbol(),
-            coords[0],
-            coords[1],
-            coords[2]
-        ))
-    for _, coords in atom_oscs + ring_oscs:
-        xyz.write('%2s %20.8e %20.8e %20.8e\n' % (
-            'X',
-            coords[0],
-            coords[1],
-            coords[2]
-        ))
+    xyz_name = (f'{name}_{args.rsf}{args.oscs_count}'
+        f'{"F" if args.fluorine else ""}'
+        f'{"NR" if args.no_ring else ""}.xyz')
 
-points_filename = '%s.esp' % name
+to_xyz(xyz_name, mol, atom_oscs, ring_oscs, name)
+
+points_filename = f'{name}.esp'
+
 if os.path.exists(points_filename):
     points = np.loadtxt(points_filename)
+
 elif not args.no_resp:
     points = gen_points(
         [conformer.GetAtomPosition(i) for i in range(len(mol.GetAtoms()))],
         [a.GetSymbol().upper() for a in mol.GetAtoms()]
     )
     points = calculate_rsf_at_points(
-        fchk_file,
+        wavefunction_file,
         points,
         SpaceFunctions.ESP,
     )
@@ -134,7 +121,7 @@ if not args.no_resp:
 
     multipoles = {}
     if args.use_multipoles:
-        multipoles = get_multipoles(fchk_file, not args.no_reuse)
+        multipoles = get_multipoles(wavefunction_file, not args.no_reuse)
 
     qf, errors = fit_charges(
         symbols = [a.GetSymbol().upper() for a in mol.GetAtoms()],
@@ -209,14 +196,14 @@ ff.residues.append(Residue('UNL', xml_atoms, xml_bonds))
 for i, (ai, osc) in enumerate(atom_oscs):
     neighb = [a.GetIdx() for a in mol.GetAtomWithIdx(ai).GetNeighbors()]
     neighb = [ai] + neighb
-    atom_coords = [confomer.GetAtomPosition(n) for n in neighb]
+    atom_coords = [conformer.GetAtomPosition(n) for n in neighb]
     if len(neighb) == 2 and not are_colinear([osc] + atom_coords):
         neighb.extend([
             a.GetIdx()
                 for a in mol.GetAtomWithIdx(neighb[-1]).GetNeighbors()
                     if a.GetIdx() not in neighb
         ])
-        atom_coords = [confomer.GetAtomPosition(n) for n in neighb]
+        atom_coords = [conformer.GetAtomPosition(n) for n in neighb]
     if len(neighb) == 2:
         vs_coords = AverageTwo.from_coordinates(
             osc,
@@ -235,7 +222,7 @@ for i, (ai, osc) in enumerate(atom_oscs):
         res = ff.residues[0]
     )
 for i, (cycle, osc) in enumerate(ring_oscs):
-    atom_coords = [confomer.GetAtomPosition(c) for c in cycle]
+    atom_coords = [conformer.GetAtomPosition(c) for c in cycle]
     vs_coords = LocalCoords.from_coordinates(
         vs = osc,
         atoms = cycle,
@@ -260,15 +247,19 @@ else:
     ))
 
 if args.use_multipoles:
-    dipole_power = int(np.log10(args.dipole_weight))
-    quadrupole_power = int(np.log10(args.quadrupole_weight))
+    def make_suffix(weight: float) -> str:
+        if weight == 0:
+            return '0'
+        power = int(np.log10(weight))
+        if power >= 0:
+            return f'p{power}'
+        return f'n{-power}'
 
-    suffixes.append('mult-%s%d-%s%d' % (
-        'p' if dipole_power >= 0 else 'n',
-        np.abs(dipole_power),
-        'p' if quadrupole_power >= 0 else 'n',
-        np.abs(quadrupole_power),
+    suffixes.append('mult-%s-%s' % (
+        make_suffix(args.dipole_weight),
+        make_suffix(args.quadrupole_weight)
     ))
+
 elif args.use_bfgs:
     suffixes.append('bfgs')
 

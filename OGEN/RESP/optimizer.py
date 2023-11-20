@@ -4,12 +4,6 @@ from scipy import optimize
 from ..utils import get_dipole, get_quadrupole
 
 
-D_TO_CM = 1e-21 / 299792458
-AU_ANSGSTROM_TO_CM = 1.6e-19*1e-10
-BOHR_TO_ANGSTROM = 0.529177249
-D_TO_AU_ANGSTROM = 0.2081943
-
-
 def fix_charges(charges_no_last):
     total_charge = sum(charges_no_last)
     return np.array([q for q in charges_no_last] + [-total_charge])
@@ -40,7 +34,7 @@ def restrained_error(charges, options, data):
     for s, q in zip(data['symbols'], charges):
         if s in options['UNRESTRAINED']:
             continue
-        error += a * ((q ** 2 + b ** 2) ** 0.5 - b)
+        error += a * ((q**2 + b**2)**0.5 - b)
 
     return error
 
@@ -76,14 +70,15 @@ def bfgs_solver(options, data):
         (options, data),
     )
     if not options['RESTRAINT']:
-        return [fix_charges(res_unrestrained.x)], \
-               [res_unrestrained.success], [res_unrestrained.message]
+        return ([fix_charges(res_unrestrained.x)], [res_unrestrained.success],
+                [res_unrestrained.message])
 
     res_restrained = optimize.minimize(
         restrained_error,
         res_unrestrained.x,
         (options, data),
     )
-    return [fix_charges(res_unrestrained.x), fix_charges(res_restrained.x)], \
-           [res_unrestrained.success, res_restrained.success], \
-           [res_unrestrained.message, res_restrained.message]
+    return ([fix_charges(res_unrestrained.x),
+             fix_charges(res_restrained.x)
+             ], [res_unrestrained.success, res_restrained.success],
+            [res_unrestrained.message, res_restrained.message])

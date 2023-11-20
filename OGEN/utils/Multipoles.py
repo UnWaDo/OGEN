@@ -1,5 +1,6 @@
+import itertools
 import numpy as np
-from .Constants import D_TO_AU_ANGSTROM
+from .constants import D_TO_AU_ANGSTROM
 
 
 def get_dipole(coords: np.ndarray, charges: np.ndarray) -> np.ndarray:
@@ -15,7 +16,18 @@ def get_quadrupole(coords: np.ndarray, charges: np.ndarray) -> np.ndarray:
 
 
 # Definition from 10.1039/QR9591300183
-# def get_octopole(coords: np.ndarray, charges: np.ndarray) -> np.ndarray:
-#     r = np.einsum('i, ij, ik, il -> jkl', charges, coords, coords, coords)
-#     omega = 0.5 * (5 * r - np.identity(3, 3))
-#     return theta * AU_ANSGSTROM_TO_CM / D_TO_CM
+def get_octopole(coords: np.ndarray, charges: np.ndarray) -> np.ndarray:
+    r = np.einsum('i, ij, ik, il -> jkl', charges, coords, coords, coords)
+    omega = 5 * r
+
+    for alpha, beta, gamma in itertools.product(range(3), repeat=3):
+        omega[alpha][beta][gamma] -= np.trace(
+            r[alpha]) * (1 if beta == gamma else 0)
+
+        omega[alpha][beta][gamma] -= np.trace(
+            r[beta]) * (1 if gamma == alpha else 0)
+
+        omega[alpha][beta][gamma] -= np.trace(
+            r[gamma]) * (1 if alpha == beta else 0)
+
+    return omega / 2 / D_TO_AU_ANGSTROM

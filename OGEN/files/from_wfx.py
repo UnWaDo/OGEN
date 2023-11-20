@@ -1,10 +1,11 @@
+from typing import List, Tuple
+
 import numpy as np
-from openbabel import pybel
 
-from .Processer import ParseError, Elements, to_obmol, BOHR_TO_ANGSTROM
+from ..utils.constants import BOHR_TO_ANGSTROM, Elements
 
 
-def from_wfx(path: str) -> pybel.Molecule:
+def from_wfx(path: str) -> Tuple[List[Elements], List[np.ndarray], int]:
     elements = []
     coords = []
     charge = 0
@@ -49,4 +50,4 @@ def from_wfx(path: str) -> pybel.Molecule:
                 float(t) for t in file.readline().split()
             ]) * BOHR_TO_ANGSTROM)
 
-    return to_obmol(elements, coords, charge)
+    return elements, coords, charge

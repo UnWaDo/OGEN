@@ -4,8 +4,7 @@ import subprocess
 from typing import List, Tuple, Union
 import numpy as np
 
-from ..fchk_parser import Elements
-from ..utils import BOHR_TO_ANGSTROM
+from ..utils import BOHR_TO_ANGSTROM, Elements
 
 
 MWFN_TOPOLOGY = '2\n'
