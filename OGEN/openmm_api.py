@@ -155,12 +155,14 @@ def parse_structure(path: str) -> Tuple[List[str], npt.ArrayLike]:
     return symbols, np.array(coords)
 
 def get_charges_and_positions(topology: Topology, positions: np.ndarray,
-                              forcefield: ForceField):
+                              forcefield: ForceField, model: Modeller = None):
     """
         positions: np.ndarray in angstroms
     """
-    model = Modeller(topology, positions / 10)
-    model.addExtraParticles(forcefield)
+    if model is None:
+        model = Modeller(topology, positions / 10)
+        model.addExtraParticles(forcefield)
+
     system = forcefield.createSystem(model.topology)
     integrator = LangevinMiddleIntegrator(
         300 * kelvin,
